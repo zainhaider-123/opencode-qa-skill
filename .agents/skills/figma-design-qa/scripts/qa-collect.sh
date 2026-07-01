@@ -67,6 +67,55 @@ echo "[2/4] Collecting site-wide data..."
 
 cat <<'EOF' | _eval_to_file "$OUTDIR/data/site-wide-raw.txt"
 (function () {
+  function getSelector(el) {
+    if (!el || el === document.body || el === document.documentElement) return el ? el.tagName.toLowerCase() : '';
+    if (el.id) return '#' + el.id;
+    var parts = [];
+    var c = el;
+    while (c && c !== document.body && c !== document.documentElement && c.nodeType === 1) {
+      var s = c.tagName.toLowerCase();
+      if (c.id) { s = '#' + c.id; parts.unshift(s); break; }
+      if (c.className && typeof c.className === 'string') {
+        var cls = c.className.trim().replace(/\s+/g, '.');
+        if (cls) s += '.' + cls;
+      }
+      var p = c.parentElement;
+      if (p) {
+        var siblings = Array.from(p.children).filter(function(x) { return x.tagName === c.tagName; });
+        if (siblings.length > 1) s += ':nth-of-type(' + (siblings.indexOf(c) + 1) + ')';
+      }
+      parts.unshift(s);
+      c = c.parentElement;
+    }
+    return parts.join(' > ');
+  }
+  function getXPath(el) {
+    if (!el || el.nodeType !== 1) return '';
+    if (el.id) return '//*[@id="' + el.id + '"]';
+    var parts = [];
+    var c = el;
+    while (c && c !== document.body && c !== document.documentElement && c.nodeType === 1) {
+      var tag = c.tagName.toLowerCase();
+      var idx = 1;
+      var sib = c.previousElementSibling;
+      while (sib) {
+        if (sib.tagName === c.tagName) idx++;
+        sib = sib.previousElementSibling;
+      }
+      parts.unshift(tag + '[' + idx + ']');
+      c = c.parentElement;
+    }
+    return '//' + parts.join('/');
+  }
+  function getSectionLabel(el) {
+    var h = el.querySelector('h1,h2,h3,h4,h5,h6');
+    if (h && h.innerText.trim()) return h.innerText.trim().substring(0, 60);
+    var lbl = el.getAttribute('aria-label') || el.getAttribute('data-label') || el.getAttribute('title');
+    if (lbl) return lbl.substring(0, 60);
+    var txt = el.innerText.trim();
+    if (txt) { var words = txt.split(/\s+/).slice(0, 5); return words.join(' ') + (txt.split(/\s+/).length > 5 ? '\u2026' : ''); }
+    return el.className ? el.className.split(' ')[0].substring(0, 40) : el.tagName.toLowerCase();
+  }
   const results = {
     title: document.title,
     url: window.location.href,
@@ -74,20 +123,26 @@ cat <<'EOF' | _eval_to_file "$OUTDIR/data/site-wide-raw.txt"
       tag: h.tagName,
       text: h.innerText.trim(),
       fontSize: getComputedStyle(h).fontSize,
-      color: getComputedStyle(h).color
+      color: getComputedStyle(h).color,
+      selector: getSelector(h),
+      xpath: getXPath(h)
     })),
     images: Array.from(document.images).map(img => ({
       src: img.src,
       naturalWidth: img.naturalWidth,
       naturalHeight: img.naturalHeight,
       alt: img.alt,
-      visible: !!(img.offsetWidth || img.offsetHeight || img.getClientRects().length)
+      visible: !!(img.offsetWidth || img.offsetHeight || img.getClientRects().length),
+      selector: getSelector(img),
+      xpath: getXPath(img)
     })),
     links: Array.from(document.querySelectorAll('a')).map(a => ({
       href: a.getAttribute('href'),
       text: a.innerText.trim(),
       isEmpty: !a.getAttribute('href') || a.getAttribute('href') === '',
-      isPlaceholder: a.getAttribute('href') === '#'
+      isPlaceholder: a.getAttribute('href') === '#',
+      selector: getSelector(a),
+      xpath: getXPath(a)
     })),
     favicon: (function () {
       const link = document.querySelector('link[rel~="icon"]');
@@ -133,7 +188,7 @@ cat <<'EOF' | _eval_to_file "$OUTDIR/data/site-wide-raw.txt"
     const rect = el.getBoundingClientRect();
     const computed = getComputedStyle(el);
     if (rect.width > window.innerWidth && computed.overflowX !== 'hidden' && computed.position !== 'fixed' && computed.position !== 'absolute') {
-      overflows.push({ tag: el.tagName, class: el.className, width: rect.width, innerWidth: window.innerWidth });
+      overflows.push({ tag: el.tagName, class: el.className, width: rect.width, innerWidth: window.innerWidth, selector: getSelector(el), xpath: getXPath(el) });
     }
   });
   results.overflows = overflows.slice(0, 50); // cap
@@ -151,7 +206,10 @@ cat <<'EOF' | _eval_to_file "$OUTDIR/data/site-wide-raw.txt"
         top: Math.round(rect.top),
         height: Math.round(rect.height),
         width: Math.round(rect.width),
-        textPreview: el.innerText.trim().substring(0, 150).replace(/\s+/g, ' ')
+        textPreview: el.innerText.trim().substring(0, 150).replace(/\s+/g, ' '),
+        selector: getSelector(el),
+        xpath: getXPath(el),
+        label: getSectionLabel(el)
       });
     }
   });
@@ -224,6 +282,68 @@ SCROLL
   # Collect breakpoint-specific data
   cat <<EOF | _eval_to_file "$OUTDIR/data/bp-${dims}-raw.txt"
 (function () {
+  function getSelector(el) {
+    if (!el || el === document.body || el === document.documentElement) return el ? el.tagName.toLowerCase() : '';
+    if (el.id) return '#' + el.id;
+    var parts = [];
+    var c = el;
+    while (c && c !== document.body && c !== document.documentElement && c.nodeType === 1) {
+      var s = c.tagName.toLowerCase();
+      if (c.id) { s = '#' + c.id; parts.unshift(s); break; }
+      if (c.className && typeof c.className === 'string') {
+        var cls = c.className.trim().replace(/\s+/g, '.');
+        if (cls) s += '.' + cls;
+      }
+      var p = c.parentElement;
+      if (p) {
+        var siblings = Array.from(p.children).filter(function(x) { return x.tagName === c.tagName; });
+        if (siblings.length > 1) s += ':nth-of-type(' + (siblings.indexOf(c) + 1) + ')';
+      }
+      parts.unshift(s);
+      c = c.parentElement;
+    }
+    return parts.join(' > ');
+  }
+  function getXPath(el) {
+    if (!el || el.nodeType !== 1) return '';
+    if (el.id) return '//*[@id="' + el.id + '"]';
+    var parts = [];
+    var c = el;
+    while (c && c !== document.body && c !== document.documentElement && c.nodeType === 1) {
+      var tag = c.tagName.toLowerCase();
+      var idx2 = 1;
+      var sib = c.previousElementSibling;
+      while (sib) {
+        if (sib.tagName === c.tagName) idx2++;
+        sib = sib.previousElementSibling;
+      }
+      parts.unshift(tag + '[' + idx2 + ']');
+      c = c.parentElement;
+    }
+    return '//' + parts.join('/');
+  }
+  function getSectionLabel(el) {
+    var h = el.querySelector('h1,h2,h3,h4,h5,h6');
+    if (h && h.innerText.trim()) return h.innerText.trim().substring(0, 60);
+    var lbl = el.getAttribute('aria-label') || el.getAttribute('data-label') || el.getAttribute('title');
+    if (lbl) return lbl.substring(0, 60);
+    var txt = el.innerText.trim();
+    if (txt) { var words = txt.split(/\s+/).slice(0, 5); return words.join(' ') + (txt.split(/\s+/).length > 5 ? '\u2026' : ''); }
+    return el.className ? el.className.split(' ')[0].substring(0, 40) : el.tagName.toLowerCase();
+  }
+  function findParentSection(el) {
+    var sectionSelectors = ['section', '[class*="hero"]', '[class*="section"]', '[class*="header"]', '[class*="footer"]', '[class*="feature"]', '[class*="testimonial"]'];
+    var current = el.parentElement;
+    while (current && current !== document.body && current !== document.documentElement) {
+      for (var i = 0; i < sectionSelectors.length; i++) {
+        if (current.matches && current.matches(sectionSelectors[i])) {
+          return getSectionLabel(current);
+        }
+      }
+      current = current.parentElement;
+    }
+    return '';
+  }
   const results = {
     viewport: { width: ${w}, height: ${h}, category: '${category}', innerWidth: window.innerWidth, innerHeight: window.innerHeight },
     overflows: [],
@@ -242,7 +362,10 @@ SCROLL
         tag: el.tagName,
         class: el.className.substring(0, 80),
         width: Math.round(rect.width),
-        vw: window.innerWidth
+        vw: window.innerWidth,
+        selector: getSelector(el),
+        xpath: getXPath(el),
+        sectionLabel: findParentSection(el)
       });
     }
   });
@@ -262,7 +385,7 @@ SCROLL
     document.querySelectorAll(sel).forEach(el => {
       const rect = el.getBoundingClientRect();
       if (rect.height === 0) {
-        results.hiddenSections.push({ selector: sel, class: el.className.substring(0, 80) });
+        results.hiddenSections.push({ selector: sel, class: el.className.substring(0, 80), elementSelector: getSelector(el), xpath: getXPath(el), label: getSectionLabel(el) });
       }
     });
   });
