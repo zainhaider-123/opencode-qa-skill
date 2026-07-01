@@ -119,14 +119,19 @@ cat <<'EOF' | _eval_to_file "$OUTDIR/data/site-wide-raw.txt"
   const results = {
     title: document.title,
     url: window.location.href,
-    headings: Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).map(h => ({
-      tag: h.tagName,
-      text: h.innerText.trim(),
-      fontSize: getComputedStyle(h).fontSize,
-      color: getComputedStyle(h).color,
-      selector: getSelector(h),
-      xpath: getXPath(h)
-    })),
+    headings: Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).map(h => {
+      const cs = getComputedStyle(h);
+      return {
+        tag: h.tagName,
+        text: h.innerText.trim() || h.textContent.trim(),
+        fontSize: cs.fontSize,
+        fontFamily: cs.fontFamily,
+        fontWeight: cs.fontWeight,
+        color: cs.color,
+        selector: getSelector(h),
+        xpath: getXPath(h)
+      };
+    }),
     images: Array.from(document.images).map(img => ({
       src: img.src,
       naturalWidth: img.naturalWidth,

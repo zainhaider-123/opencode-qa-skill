@@ -60,6 +60,22 @@ Supports manual section override via `sections-config.json` (see Step 1). If not
 - Detect the frame width. 1920px is the common desktop baseline, but it varies by project — use whatever width the actual frame reports, don't assume 1920.
 - Detect whether the Figma file only contains a desktop frame (no tablet/mobile frames). If so, note this explicitly in the report: responsive breakpoints will be checked against the live site's own responsive behavior and general usability heuristics rather than a pixel design reference, since no mobile/tablet Figma frame exists.
 - Break the frame into logical sections in top-to-bottom order (e.g. header/nav, hero, feature sections, testimonials, footer, etc.) using visual grouping/frame names as a guide. This section list is the backbone of the whole report — keep section names consistent between Figma and live site comparisons.
+- **MANDATORY: Extract every heading's Figma design properties** (text content, font family, font weight, font size, and text color) from the Figma design context. Write these expectations to `<run-folder>/data/figma-heading-expectations.json` using this exact format:
+
+  ```json
+  [
+    {
+      "selector": "header h1",
+      "expectedText": "Welcome to our site",
+      "expectedFontFamily": "Inter",
+      "expectedFontWeight": "700",
+      "expectedFontSize": "48px",
+      "expectedColor": "#111111"
+    }
+  ]
+  ```
+
+  The `selector` field must match the CSS selector the collection script will produce for the same heading on the live site. Derive it from the element's context (e.g. `section.hero h1`, `footer h2`). This file is read by the report generator to auto-produce pass/warning/severe rows for every heading — if it is missing, the report will contain a **severe** finding: "AI agent did not perform heading comparison".
 
 ### Mapping Figma sections to live site sections
 
@@ -141,7 +157,19 @@ For automated checks, cross-reference the data from `./figma-design-qa-reports/<
 - Compare **link hover transitions** (from JSON `linkTransition`).
 - Compare **section boundaries** (from JSON `sections`) against Figma frame sections. Each section includes `label`, `selector`, `xpath`, and position data.
 
-For color, font family, font size, content/copy, container dimensions, and other visual checks, you still need to compare Figma data against the live site screenshots in `./figma-design-qa-reports/<run-folder>/screenshots/` — the script does not extract per-element computed styles.
+For color, font family, font size, content/copy, container dimensions, and other visual checks, you **must** compare Figma data against the live site screenshots in `./figma-design-qa-reports/<run-folder>/screenshots/` — the script does not extract per-element computed styles for everything.
+
+### Mandatory heading comparison (do not skip)
+
+For **every heading** on the page, you must compare the following against Figma. These are enforced by the report generator via `figma-heading-expectations.json` (created in Step 1). If that file is missing or incomplete, the report will flag it as **severe**.
+
+- **Text content**: must match Figma exactly (any deviation → severe per `checklist.md`)
+- **Font size**: ±10% tolerance (within → warning at most; beyond → severe)
+- **Font family**: must match Figma exactly (mismatch → severe)
+- **Font weight**: must match Figma exactly (mismatch → severe)
+- **Color**: exact/near-exact → pass; same hue different shade → warning; wrong color → severe
+
+After running the collection script, verify that every live heading has a matching entry in `figma-heading-expectations.json` (matched by `selector`). If the collection script produces a different selector than what you wrote, update `figma-heading-expectations.json` to match before running the report generator.
 
 ## Step 4 — Responsive / cross-browser testing
 
@@ -173,12 +201,12 @@ node <absolute-path-to-scripts/qa-generate-report.js> ./figma-design-qa-reports/
 ```
 
 The script:
-1. Loads `site-wide.json`, all `bp-*.json` files, and optional `sections-config.json` from the data directory
+1. Loads `site-wide.json`, all `bp-*.json` files, `figma-heading-expectations.json`, and optional `sections-config.json` from the data directory
 2. Resolves sections (manual override if `sections-config.json` exists, otherwise auto-detected from `site-wide.json`)
 3. Builds `report.html` with:
    - **Summary box** — pass/warning/severe counts, section count, breakpoint count, site URL, date, and whether sections were manual or auto-detected
    - **Per-section tables** — one dedicated table per section, each with columns: Section, Parameter, Expected, Found, Verdict, Note, **Selector** (copy-paste CSS selector for DevTools)
-   - **Site-wide checks table** — page title, favicon, broken images, heading hierarchy, empty headings, links, link transitions — all with Selector column
+    - **Site-wide checks table** — page title, favicon, broken images, heading hierarchy, empty headings, per-heading Figma comparison (text, font-size, font-weight, font-family, color), links, link transitions — all with Selector column
    - **Responsive tables** — grouped by section+category (e.g. "Hero / mobile"), with overflows and hidden sections attributed to their parent section via `sectionLabel`
    - **Screenshots gallery** — all breakpoint screenshots with lazy loading and clickable links
    - **Jump navigation** — anchor links to every section table, site-wide table, responsive section, and screenshots
@@ -191,7 +219,7 @@ Structure the report (HTML / CSV) as follows:
 
 1. **Cover / Summary page** — site URL, Figma file/page URL, date, detected Figma frame width, whether mobile/tablet Figma frames existed, section source (manual override vs auto-detected), and a totals box: count of pass / warning / severe / total checks / sections / breakpoints.
 2. **Section-by-section report** — for every identified section (in page order), a dedicated table. Every parameter from `references/checklist.md` that applies to that section must appear as its own row. Each row has: **Section | Parameter | Expected (Figma) | Found (Live Site) | Verdict (pass/warning/severe) | Note | Selector**. The Selector column contains a copy-paste CSS selector the developer can use in DevTools to locate the element.
-3. **Site-wide checks** — same table format with Selector column for: page title, favicon, broken images (each with its `selector`), heading hierarchy and size-consistency findings, empty heading audit (each with `selector`), full link audit (every bad/empty href with its `selector`), and link hover transition.
+3. **Site-wide checks** — same table format with Selector column for: page title, favicon, broken images (each with its `selector`), heading hierarchy and size-consistency findings, empty heading audit (each with `selector`), **per-heading Figma comparison** (text content, font size, font weight, font family, color — each with verdict and selector), full link audit (every bad/empty href with its `selector`), and link hover transition.
 4. **Responsive / cross-browser report** — grouped by section+category (e.g. "Hero / desktop", "Footer / mobile"). Within each group, rows cover: overflow (with `sectionLabel` attribution and `selector`), section visibility (collapsed sections with `label` and `elementSelector`), and (mobile only) hamburger nav parity — each with its own verdict, not just a single pass/fail per size.
 5. **Appendix (optional)** — screenshots gallery with all breakpoint screenshots, each clickable to view full-size. Any additional screenshots/notes that materially help explain a severe finding. Screenshots are saved under `./figma-design-qa-reports/<run-folder>/screenshots/` and referenced with relative paths from `report.html`.
 6. **CSV export** — `report.csv` mirrors the HTML content with columns: Section, Parameter, Expected, Found, Verdict, Note, Selector. Can be imported directly into Jira, Google Sheets, or Excel for bug tracking.

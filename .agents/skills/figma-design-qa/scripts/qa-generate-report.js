@@ -122,6 +122,119 @@ if (emptyHeadings.length === 0) {
   siteWideRows.push(makeRow('Page-wide', 'Empty headings', 'None', '0', 'pass', '', ''));
 }
 
+// Figma heading comparison — reads figma-heading-expectations.json written by AI agent after Step 1
+const figmaHeadingsFile = loadJSON(path.join(dataDir, 'figma-heading-expectations.json'));
+if (!figmaHeadingsFile || !Array.isArray(figmaHeadingsFile) || figmaHeadingsFile.length === 0) {
+  siteWideRows.push(makeRow('Page-wide', 'Figma heading comparison', 'Must compare every heading against Figma', 'figma-heading-expectations.json missing', 'severe', 'AI agent did not perform heading comparison — verify text, font-size, font-weight, font-family, color per heading', ''));
+} else {
+  const expectationsBySelector = {};
+  figmaHeadingsFile.forEach(exp => {
+    if (exp.selector) expectationsBySelector[exp.selector] = exp;
+  });
+
+  headings.forEach(live => {
+    const exp = expectationsBySelector[live.selector];
+    if (!exp) {
+      // Try text match as fallback
+      const textMatch = figmaHeadingsFile.find(e => e.expectedText && e.expectedText.trim().toLowerCase() === live.text.toLowerCase());
+      if (textMatch) {
+        compareHeadingProps(live, textMatch);
+      } else {
+        siteWideRows.push(makeRow('Page-wide', `Heading content: ${live.tag}`, 'Match Figma', `${live.text.substring(0,50)}`, 'warning', 'No Figma expectation found for this selector; compare manually', live.selector));
+      }
+      return;
+    }
+    compareHeadingProps(live, exp);
+  });
+
+  // Also flag Figma expectations that weren't found on live site
+  figmaHeadingsFile.forEach(exp => {
+    if (exp.selector) {
+      const found = headings.find(h => h.selector === exp.selector);
+      if (!found) {
+        const byText = headings.find(h => h.text.toLowerCase() === (exp.expectedText || '').toLowerCase());
+        if (!byText) {
+          siteWideRows.push(makeRow('Page-wide', `Missing heading`, exp.expectedText || exp.selector, 'Not on page', 'severe', 'Heading expected from Figma not found on live site', exp.selector || ''));
+        }
+      }
+    }
+  });
+
+  function compareHeadingProps(live, exp) {
+    const label = `Heading: ${live.tag} "${live.text.substring(0,50)}"`;
+    const sel = live.selector;
+
+    // Text content
+    if (exp.expectedText !== undefined && exp.expectedText !== null) {
+      const textMatch = live.text.trim() === (exp.expectedText || '').trim();
+      siteWideRows.push(makeRow('Page-wide', `${label} — Text content`, exp.expectedText, live.text, textMatch ? 'pass' : 'severe', textMatch ? '' : 'Content mismatch with Figma', sel));
+    }
+
+    // Font size
+    if (exp.expectedFontSize) {
+      const livePx = parseFloat(live.fontSize);
+      const expPx = parseFloat(exp.expectedFontSize);
+      let fsVerdict = 'pass', fsNote = '';
+      if (!isNaN(livePx) && !isNaN(expPx)) {
+        const pctDiff = Math.abs(livePx - expPx) / expPx;
+        if (pctDiff > 0.1) { fsVerdict = 'severe'; fsNote = `${(pctDiff * 100).toFixed(1)}% deviation (>10%)`; }
+        else if (pctDiff > 0) { fsVerdict = 'warning'; fsNote = `${(pctDiff * 100).toFixed(1)}% deviation (within ±10%)`; }
+      }
+      siteWideRows.push(makeRow('Page-wide', `${label} — Font size`, exp.expectedFontSize, live.fontSize, fsVerdict, fsNote, sel));
+    }
+
+    // Font family
+    if (exp.expectedFontFamily) {
+      const ffMatch = live.fontFamily.toLowerCase().includes(exp.expectedFontFamily.toLowerCase().replace(/['"]/g, ''));
+      siteWideRows.push(makeRow('Page-wide', `${label} — Font family`, exp.expectedFontFamily, live.fontFamily, ffMatch ? 'pass' : 'severe', ffMatch ? '' : 'Wrong typeface', sel));
+    }
+
+    // Font weight
+    if (exp.expectedFontWeight) {
+      const lw = String(live.fontWeight);
+      const ew = String(exp.expectedFontWeight);
+      siteWideRows.push(makeRow('Page-wide', `${label} — Font weight`, ew, lw, lw === ew ? 'pass' : 'severe', lw === ew ? '' : `Expected ${ew}, found ${lw}`, sel));
+    }
+
+    // Color
+    if (exp.expectedColor) {
+      const liveColor = normalizeColor(live.color);
+      const expColor = normalizeColor(exp.expectedColor);
+      let cVerdict = 'pass', cNote = '';
+      if (liveColor !== expColor) {
+        const sameHue = sameHueFamily(liveColor, expColor);
+        cVerdict = sameHue ? 'warning' : 'severe';
+        cNote = sameHue ? 'Same hue family, different shade' : 'Wrong color';
+      }
+      siteWideRows.push(makeRow('Page-wide', `${label} — Color`, exp.expectedColor, live.color, cVerdict, cNote, sel));
+    }
+  }
+}
+
+function normalizeColor(c) {
+  if (!c) return '';
+  if (c.startsWith('rgb')) {
+    const m = c.match(/[\d.]+/g);
+    if (!m || m.length < 3) return c;
+    const hex = m.slice(0, 3).map(x => parseInt(x).toString(16).padStart(2, '0').toUpperCase()).join('');
+    return '#' + hex;
+  }
+  return c.toUpperCase().replace(/\s/g, '');
+}
+
+function sameHueFamily(a, b) {
+  if (!a || !b) return false;
+  const ma = a.match(/[\d.]+/g);
+  const mb = b.match(/[\d.]+/g);
+  if (!ma || !mb || ma.length < 3 || mb.length < 3) return false;
+  // Compare rough RGB ratios — if ratios are within 0.2 of each other, same hue family
+  const sumA = ma.reduce((s, v) => s + parseInt(v), 0) || 1;
+  const sumB = mb.reduce((s, v) => s + parseInt(v), 0) || 1;
+  const ratiosA = ma.map(v => parseInt(v) / sumA);
+  const ratiosB = mb.map(v => parseInt(v) / sumB);
+  return ratiosA.every((r, i) => Math.abs(r - ratiosB[i]) < 0.2);
+}
+
 // Links
 const links = siteWide.links || [];
 const emptyLinks = links.filter(l => l.isEmpty);
