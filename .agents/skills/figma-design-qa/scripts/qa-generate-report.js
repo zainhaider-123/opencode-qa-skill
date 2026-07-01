@@ -65,9 +65,9 @@ function countVerdict(v) {
   else if (v === 'pass') passCount++;
 }
 
-function makeRow(section, param, expected, found, verdict, note, selector) {
+function makeRow(section, param, expected, found, verdict, note, selector, parentSelector) {
   countVerdict(verdict);
-  return { section, param, expected, found, verdict, note, selector: selector || '' };
+  return { section, param, expected, found, verdict, note, selector: selector || '', parentSelector: parentSelector || '' };
 }
 
 // ── Data structures for tables ───────────────────────────────────────
@@ -88,7 +88,7 @@ siteWideRows.push(makeRow('Page-wide', 'Favicon', 'Present & loads', faviconOK ?
 // Images
 const broken = siteWide.brokenImages || [];
 broken.forEach(img => {
-  siteWideRows.push(makeRow('Page-wide', 'Broken image', 'Image renders', img.src, 'severe', '0x0 natural dimensions', img.selector || ''));
+  siteWideRows.push(makeRow('Page-wide', 'Broken image', 'Image renders', img.src, 'severe', '0x0 natural dimensions — image not visible', img.selector || '', img.parentSelector || ''));
 });
 if (broken.length === 0) {
   siteWideRows.push(makeRow('Page-wide', 'Images', 'All render', 'All loaded', 'pass', `${(siteWide.images || []).length} images checked`, ''));
@@ -288,7 +288,7 @@ breakpoints.forEach(bp => {
         const key = `${secLabel} / ${cat}`;
         if (!responsiveRows[key]) responsiveRows[key] = [];
         items.forEach((o, i) => {
-          responsiveRows[key].push(makeRow(secLabel, `Overflow @ ${vw}x${vh}`, 'No horizontal overflow', `${o.tag}.${o.class.substring(0,30)} (${o.width}px > ${o.vw}px vw)`, 'severe', i === 0 ? `${items.length} overflowing in this section` : '', o.selector || ''));
+          responsiveRows[key].push(makeRow(secLabel, `Overflow @ ${vw}x${vh}`, 'No horizontal overflow', `${o.tag}.${o.class.substring(0,30)} (${o.width}px > ${o.vw}px vw)`, 'severe', i === 0 ? `${items.length} overflowing in this section` : '', o.selector || '', o.parentSelector || ''));
         });
       });
     } else {
@@ -308,7 +308,7 @@ breakpoints.forEach(bp => {
     const secLabel = s.label || 'Unknown';
     const key = `${secLabel} / ${cat}`;
     if (!responsiveRows[key]) responsiveRows[key] = [];
-    responsiveRows[key].push(makeRow(secLabel, `Hidden section @ ${vw}x${vh}`, 'All sections visible', `Collapsed (height=0)`, 'severe', `Query: ${s.selector}`, s.elementSelector || ''));
+    responsiveRows[key].push(makeRow(secLabel, `Hidden section @ ${vw}x${vh}`, 'All sections visible', `Collapsed (height=0)`, 'severe', `Query: ${s.selector}`, s.elementSelector || '', s.parentSelector || ''));
   });
 
   // Mobile hamburger
@@ -326,11 +326,13 @@ breakpoints.forEach(bp => {
 // ── HTML generation ──────────────────────────────────────────────────
 function renderTable(title, rows, showSelector) {
   if (!rows || rows.length === 0) return '';
+  const hasParent = rows.some(r => r.parentSelector && r.parentSelector.length > 0);
   return `<h3>${h(title)}</h3>
 <table>
 <thead><tr>
 <th>Section</th><th>Parameter</th><th>Expected</th><th>Found</th><th>Verdict</th><th>Note</th>
 ${showSelector ? '<th>Selector</th>' : ''}
+${showSelector && hasParent ? '<th>Parent XPath</th>' : ''}
 </tr></thead>
 <tbody>
 ${rows.map(r => `<tr>
@@ -340,7 +342,8 @@ ${rows.map(r => `<tr>
 <td>${h(r.found)}</td>
 <td class="${verdictClass(r.verdict)}">${verdictIcon(r.verdict)} ${h(r.verdict.toUpperCase())}</td>
 <td>${h(r.note)}</td>
-${showSelector ? `<td class="selector-cell"><code>${h(r.selector)}</code></td>` : ''}
+${showSelector ? `<td class="selector-cell"><code class="devtools">document.querySelector("${h(r.selector)}").scrollIntoView()</code></td>` : ''}
+${showSelector && hasParent ? `<td class="selector-cell" style="color:#b71c1c"><code class="devtools">document.querySelector("${h(r.parentSelector)}").scrollIntoView()</code></td>` : ''}
 </tr>`).join('')}
 </tbody>
 </table>`;
@@ -448,9 +451,9 @@ fs.writeFileSync(outHtml, html);
 console.log(`Report (HTML) written to: ${outHtml}`);
 
 // ── Write CSV ────────────────────────────────────────────────────────
-const csvHeader = 'Section,Parameter,Expected,Found,Verdict,Note,Selector\n';
+const csvHeader = 'Section,Parameter,Expected,Found,Verdict,Note,Selector,ParentSelector\n';
 const csvBody = allRows.map(r =>
-  [csv(r.section), csv(r.param), csv(r.expected), csv(r.found), csv(r.verdict), csv(r.note), csv(r.selector)].join(',')
+  [csv(r.section), csv(r.param), csv(r.expected), csv(r.found), csv(r.verdict), csv(r.note), csv(r.selector), csv(r.parentSelector || '')].join(',')
 ).join('\n');
 const outCsv = path.join(inputDir, 'report.csv');
 fs.writeFileSync(outCsv, csvHeader + csvBody);

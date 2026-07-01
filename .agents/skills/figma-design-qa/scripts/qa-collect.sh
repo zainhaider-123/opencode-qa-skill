@@ -107,6 +107,30 @@ cat <<'EOF' | _eval_to_file "$OUTDIR/data/site-wide-raw.txt"
     }
     return '//' + parts.join('/');
   }
+  function getVisibleParentSelector(el) {
+    if (!el || el.nodeType !== 1) return '';
+    var p = el.parentElement;
+    while (p && p !== document.body && p !== document.documentElement) {
+      var cs = getComputedStyle(p);
+      if (cs.display !== 'none' && cs.visibility !== 'hidden' && (p.offsetWidth > 0 || p.offsetHeight > 0)) {
+        return getSelector(p);
+      }
+      p = p.parentElement;
+    }
+    return '';
+  }
+  function getVisibleParentXPath(el) {
+    if (!el || el.nodeType !== 1) return '';
+    var p = el.parentElement;
+    while (p && p !== document.body && p !== document.documentElement) {
+      var cs = getComputedStyle(p);
+      if (cs.display !== 'none' && cs.visibility !== 'hidden' && (p.offsetWidth > 0 || p.offsetHeight > 0)) {
+        return getXPath(p);
+      }
+      p = p.parentElement;
+    }
+    return '';
+  }
   function getSectionLabel(el) {
     var h = el.querySelector('h1,h2,h3,h4,h5,h6');
     if (h && h.innerText.trim()) return h.innerText.trim().substring(0, 60);
@@ -139,7 +163,9 @@ cat <<'EOF' | _eval_to_file "$OUTDIR/data/site-wide-raw.txt"
       alt: img.alt,
       visible: !!(img.offsetWidth || img.offsetHeight || img.getClientRects().length),
       selector: getSelector(img),
-      xpath: getXPath(img)
+      xpath: getXPath(img),
+      parentSelector: getVisibleParentSelector(img),
+      parentXpath: getVisibleParentXPath(img)
     })),
     links: Array.from(document.querySelectorAll('a')).map(a => ({
       href: a.getAttribute('href'),
@@ -193,7 +219,7 @@ cat <<'EOF' | _eval_to_file "$OUTDIR/data/site-wide-raw.txt"
     const rect = el.getBoundingClientRect();
     const computed = getComputedStyle(el);
     if (rect.width > window.innerWidth && computed.overflowX !== 'hidden' && computed.position !== 'fixed' && computed.position !== 'absolute') {
-      overflows.push({ tag: el.tagName, class: el.className, width: rect.width, innerWidth: window.innerWidth, selector: getSelector(el), xpath: getXPath(el) });
+      overflows.push({ tag: el.tagName, class: el.className, width: rect.width, innerWidth: window.innerWidth, selector: getSelector(el), xpath: getXPath(el), parentSelector: getVisibleParentSelector(el), parentXpath: getVisibleParentXPath(el) });
     }
   });
   results.overflows = overflows.slice(0, 50); // cap
@@ -327,6 +353,30 @@ SCROLL
     }
     return '//' + parts.join('/');
   }
+  function getVisibleParentSelector(el) {
+    if (!el || el.nodeType !== 1) return '';
+    var p = el.parentElement;
+    while (p && p !== document.body && p !== document.documentElement) {
+      var cs = getComputedStyle(p);
+      if (cs.display !== 'none' && cs.visibility !== 'hidden' && (p.offsetWidth > 0 || p.offsetHeight > 0)) {
+        return getSelector(p);
+      }
+      p = p.parentElement;
+    }
+    return '';
+  }
+  function getVisibleParentXPath(el) {
+    if (!el || el.nodeType !== 1) return '';
+    var p = el.parentElement;
+    while (p && p !== document.body && p !== document.documentElement) {
+      var cs = getComputedStyle(p);
+      if (cs.display !== 'none' && cs.visibility !== 'hidden' && (p.offsetWidth > 0 || p.offsetHeight > 0)) {
+        return getXPath(p);
+      }
+      p = p.parentElement;
+    }
+    return '';
+  }
   function getSectionLabel(el) {
     var h = el.querySelector('h1,h2,h3,h4,h5,h6');
     if (h && h.innerText.trim()) return h.innerText.trim().substring(0, 60);
@@ -370,6 +420,8 @@ SCROLL
         vw: window.innerWidth,
         selector: getSelector(el),
         xpath: getXPath(el),
+        parentSelector: getVisibleParentSelector(el),
+        parentXpath: getVisibleParentXPath(el),
         sectionLabel: findParentSection(el)
       });
     }
@@ -390,7 +442,7 @@ SCROLL
     document.querySelectorAll(sel).forEach(el => {
       const rect = el.getBoundingClientRect();
       if (rect.height === 0) {
-        results.hiddenSections.push({ selector: sel, class: el.className.substring(0, 80), elementSelector: getSelector(el), xpath: getXPath(el), label: getSectionLabel(el) });
+        results.hiddenSections.push({ selector: sel, class: el.className.substring(0, 80), elementSelector: getSelector(el), xpath: getXPath(el), parentSelector: getVisibleParentSelector(el), parentXpath: getVisibleParentXPath(el), label: getSectionLabel(el) });
       }
     });
   });
