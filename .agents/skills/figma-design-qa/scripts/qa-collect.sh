@@ -10,6 +10,14 @@ if [ -z "$URL" ]; then
   exit 1
 fi
 
+
+QAPWD="${2:-}"
+if [ -z "$QAPWD" ]; then
+  echo "Usage: $0 <site-url> [output-directory]"
+  echo "Example: $0 https://dev.webnhubs.com/laura-couture/ current-directory"
+  echo "pass the current working directory in the arguments"
+if
+
 # Derive output directory
 SITE_SLUG=$(echo "$URL" | sed -E 's|https?://||; s|/.*||; s|www\.||')
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M)
