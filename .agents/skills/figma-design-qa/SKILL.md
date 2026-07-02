@@ -24,7 +24,9 @@ Two scripts automate the heavy lifting. **Do not** use DevTools MCP or manual `e
 
 ### `scripts/qa-collect.sh`
 
-Opens the live site via `agent-browser`, collects all site-wide data (title, favicon, images, links, headings, sections, overflow), tests every responsive breakpoint from `references/breakpoints.md`, takes full-page screenshots, and detects hamburger nav + overflow issues. Saves everything into the per-run data directory.
+Opens the live site via `agent-browser`, collects all site-wide data, tests every responsive breakpoint from `references/breakpoints.md`, takes full-page screenshots, and detects hamburger nav + overflow issues. Saves everything into the per-run data directory.
+
+Every captured element includes a **copy-pasteable CSS selector** (`selector` field) and **XPath** (`xpath` field) so developers can immediately locate the element in DevTools. Sections include a human-readable `label` derived from their heading text or aria-label. Breakpoint overflow findings include a `sectionLabel` field attributing each overflow to its parent section.
 
 **Usage:** `bash <skill-dir>/scripts/qa-collect.sh <site-url> [output-directory]`
 
@@ -33,7 +35,13 @@ Opens the live site via `agent-browser`, collects all site-wide data (title, fav
 
 ### `scripts/qa-generate-report.js`
 
-Reads collected data (site-wide.json, bp-*.json, screenshots) from the per-run folder and generates `report.html` + attempts PDF conversion.
+Reads collected data from the per-run folder and generates:
+
+- **`report.html`** — per-section tables (one table per detected section), site-wide checks table, responsive tables with section attribution, a **Selector column** on every row for copy-paste into DevTools, a **Parent XPath column** for non-visible elements showing the nearest visible ancestor's CSS selector in `document.querySelector("").scrollIntoView()` format, summary box with pass/warning/severe counts, and jump navigation.
+- **`report.csv`** — same data in CSV format (columns: Section, Parameter, Expected, Found, Verdict, Note, Selector) for Jira/Excel import.
+- **`report.pdf`** (optional) — attempted via `agent-browser` or headless Chrome fallback.
+
+Supports manual section override via `sections-config.json` (see Step 1). If not present, sections are auto-detected from `site-wide.json`.
 
 **Usage:** `node <skill-dir>/scripts/qa-generate-report.js <collection-directory>`
 
@@ -52,6 +60,48 @@ Reads collected data (site-wide.json, bp-*.json, screenshots) from the per-run f
 - Detect the frame width. 1920px is the common desktop baseline, but it varies by project — use whatever width the actual frame reports, don't assume 1920.
 - Detect whether the Figma file only contains a desktop frame (no tablet/mobile frames). If so, note this explicitly in the report: responsive breakpoints will be checked against the live site's own responsive behavior and general usability heuristics rather than a pixel design reference, since no mobile/tablet Figma frame exists.
 - Break the frame into logical sections in top-to-bottom order (e.g. header/nav, hero, feature sections, testimonials, footer, etc.) using visual grouping/frame names as a guide. This section list is the backbone of the whole report — keep section names consistent between Figma and live site comparisons.
+- **MANDATORY: Extract every heading's Figma design properties** (text content, font family, font weight, font size, and text color) from the Figma design context. Write these expectations to `<run-folder>/data/figma-heading-expectations.json` using this exact format:
+
+  ```json
+  [
+    {
+      "selector": "header h1",
+      "expectedText": "Welcome to our site",
+      "expectedFontFamily": "Inter",
+      "expectedFontWeight": "700",
+      "expectedFontSize": "48px",
+      "expectedColor": "#111111"
+    }
+  ]
+  ```
+
+  The `selector` field must match the CSS selector the collection script will produce for the same heading on the live site. Derive it from the element's context (e.g. `section.hero h1`, `footer h2`). This file is read by the report generator to auto-produce pass/warning/severe rows for every heading — if it is missing, the report will contain a **severe** finding: "AI agent did not perform heading comparison".
+
+### Mapping Figma sections to live site sections
+
+The collection script auto-detects sections heuristically by scanning for common container classes (`section`, `[class*="hero"]`, `[class*="header"]`, `[class*="footer"]`, etc.). For sites built with page builders (Elementor, WordPress custom themes, Webflow, etc.), auto-detection may miss or misidentify sections. To override:
+
+1. After Step 1 (Figma data), identify the Figma section names and write a **`sections-config.json`** file into the per-run data directory:
+
+   ```json
+   {
+     "sections": [
+       { "name": "Header",      "selector": "header#site-header" },
+       { "name": "Hero",         "selector": "section.hero-banner" },
+       { "name": "Features",     "selector": ".elementor-section.features" },
+       { "name": "Testimonials", "selector": "#testimonials" },
+       { "name": "Footer",       "selector": "footer.site-footer" }
+     ]
+   }
+   ```
+
+2. Each entry needs a `name` (the human-readable label used in the report) and a `selector` (any valid CSS selector — ID, class, attribute, or compound — that uniquely identifies the section on the live page).
+
+3. Write this file **before** running Step 5 (report generation). The report generator reads it and uses these sections instead of the auto-detected ones.
+
+4. If the auto-detected sections are close but need minor fixes, you can also edit `site-wide.json`'s `sections` array directly to adjust labels, or write `sections-config.json` to replace only specific sections (unspecified sections fall back to auto-detection).
+
+5. If you cannot determine the correct selector from the Figma design alone, run the collection script first (Step 2), inspect the auto-detected sections in `site-wide.json`, and then create `sections-config.json` using the `selector` fields from the auto-detected sections as a starting point.
 
 ## Step 2 — Collect live site data (scripted)
 
@@ -69,9 +119,19 @@ Do **not** use DevTools MCP or manual `evaluate_script` for this. Run the collec
 
 The script handles:
 - Opening the site at desktop width, scrolling to trigger lazy content
-- Collecting site-wide data (title, favicon, images, links, headings, heading hierarchy, broken images, overflows, section boundaries)
+- Collecting site-wide data with **CSS selector** and **XPath** on every element:
+  - **headings** — tag, text, font-size, color, `selector`, `xpath`
+  - **images** — src, natural dimensions, alt, visibility, `selector`, `xpath`
+  - **links** — href, text, empty/placeholder flags, `selector`, `xpath`
+  - **sections** — tag, class, position/dimensions, text preview, `label` (human-readable name from heading/aria-label), `selector`, `xpath`
+  - **overflows** — elements wider than viewport, `selector`, `xpath`
+  - heading hierarchy check (h1 count, size inversion)
+  - broken image detection, link transition detection, favicon presence
 - Testing every breakpoint from `references/breakpoints.md` and taking full-page screenshots
-- Overflow detection, hidden section detection, and hamburger nav detection (mobile only)
+- Breakpoint-specific data with **section attribution**:
+  - **overflows** — includes `sectionLabel` (parent section name), `selector`, `xpath`
+  - **hiddenSections** — collapsed sections with `label`, `elementSelector`, `xpath`
+  - **hamburger nav detection** — mobile only, with extracted nav links
 
 ## Step 3 — Section-by-section comparison
 
@@ -79,16 +139,37 @@ For every matched section, evaluate each parameter below and assign exactly one 
 
 Read `references/checklist.md` for the full parameter-by-parameter rules (color, fonts, font size tolerance, content/copy matching, dummy text detection, container sizing, links, hover states, heading hierarchy, images, favicon, page title). That file is the source of truth for severity thresholds — follow it exactly, especially the font-size ±10% rule and the "any content mismatch = severe" rule.
 
+### Aligning sections
+
+If the auto-detected sections in `site-wide.json` don't match the Figma sections from Step 1:
+
+1. **Review the auto-detected sections**: open `site-wide.json` and inspect the `sections` array. Each entry has a `label`, `selector`, `xpath`, `class`, `top`, and `height`.
+2. **Match them to Figma sections**: map each Figma section name to the corresponding live site section. Use the `selector` field to verify in the browser.
+3. **Create `sections-config.json`** (see Step 1) with the correct `name` → `selector` mapping. Write it to `<run-folder>/data/sections-config.json`.
+4. **Re-run the report generator** to pick up the manual section mapping.
+
 For automated checks, cross-reference the data from `./figma-design-qa-reports/<run-folder>/data/site-wide.json` against the Figma design data from Step 1:
 - Compare the live site's **page title** (from JSON) against Figma's expected title.
 - Compare **favicon** existence (from JSON) against expected.
-- Compare **heading hierarchy** (from JSON `headingInversion`, `h1s` count) against Figma.
-- Compare **images** (from JSON `brokenImages`) — flag broken ones.
-- Compare **links** (from JSON `emptyLinks`, `placeholderLinks`) — flag issues.
+- Compare **heading hierarchy** (from JSON `headingInversion`, `h1s` count) against Figma. Each heading includes a `selector` for quick location.
+- Compare **images** (from JSON `brokenImages`) — flag broken ones. The `selector` field identifies the element.
+- Compare **links** (from JSON `emptyLinks`, `placeholderLinks`) — flag issues with `selector` for location.
 - Compare **link hover transitions** (from JSON `linkTransition`).
-- Compare **section boundaries** (from JSON `sections`) against Figma frame sections.
+- Compare **section boundaries** (from JSON `sections`) against Figma frame sections. Each section includes `label`, `selector`, `xpath`, and position data.
 
-For color, font family, font size, content/copy, container dimensions, and other visual checks, you still need to compare Figma data against the live site screenshots in `./figma-design-qa-reports/<run-folder>/screenshots/` — the script does not extract per-element computed styles.
+For color, font family, font size, content/copy, container dimensions, and other visual checks, you **must** compare Figma data against the live site screenshots in `./figma-design-qa-reports/<run-folder>/screenshots/` — the script does not extract per-element computed styles for everything.
+
+### Mandatory heading comparison (do not skip)
+
+For **every heading** on the page, you must compare the following against Figma. These are enforced by the report generator via `figma-heading-expectations.json` (created in Step 1). If that file is missing or incomplete, the report will flag it as **severe**.
+
+- **Text content**: must match Figma exactly (any deviation → severe per `checklist.md`)
+- **Font size**: ±10% tolerance (within → warning at most; beyond → severe)
+- **Font family**: must match Figma exactly (mismatch → severe)
+- **Font weight**: must match Figma exactly (mismatch → severe)
+- **Color**: exact/near-exact → pass; same hue different shade → warning; wrong color → severe
+
+After running the collection script, verify that every live heading has a matching entry in `figma-heading-expectations.json` (matched by `selector`). If the collection script produces a different selector than what you wrote, update `figma-heading-expectations.json` to match before running the report generator.
 
 ## Step 4 — Responsive / cross-browser testing
 
@@ -96,8 +177,8 @@ This is already handled by `qa-collect.sh` — it tests every breakpoint from `r
 
 To review results:
 1. Read the per-breakpoint JSON files in `./figma-design-qa-reports/<run-folder>/data/bp-*.json` for:
-   - `overflows` — elements wider than viewport (script caps at 30 unique culprits)
-   - `hiddenSections` — collapsed/zero-height sections
+   - `overflows` — elements wider than viewport. Each entry includes `sectionLabel` (which section the overflow belongs to), `selector`, and `xpath` for easy DevTools location.
+   - `hiddenSections` — collapsed/zero-height sections. Each entry includes `label` (section name), `elementSelector`, and `xpath`.
    - `hamburgerDetected` / `hamburgerLinks` — mobile-only nav parity
 2. Scan the screenshots at each breakpoint (in `./figma-design-qa-reports/<run-folder>/screenshots/`) for:
    - text/content overflow caused by font size
@@ -107,35 +188,40 @@ To review results:
 
 Flag any issues found, using `references/checklist.md` severity rules.
 
-## Step 5 — Compile the report as a PDF
+## Step 5 — Compile the report as HTML + CSV (+ PDF)
 
-The final deliverable is always a **PDF file** — never just a chat-only summary. The PDF (and every intermediate artifact) is written into the per-run folder under `./figma-design-qa-reports/<run-folder>/` relative to cwd (see "Working directory" above).
+The final deliverables are **`report.html`** and **`report.csv`** — never just a chat-only summary. All artifacts are written into the per-run folder under `./figma-design-qa-reports/<run-folder>/`.
 
-### PDF generation via script
+### Report generation via script
 
-Run the report generator script — it reads collected data and produces `report.html`, then attempts PDF conversion:
+Run the report generator script — it reads collected data and produces `report.html`, `report.csv`, and optionally `report.pdf`:
 
 ```bash
 node <absolute-path-to-scripts/qa-generate-report.js> ./figma-design-qa-reports/<run-folder>
 ```
 
 The script:
-1. Loads `site-wide.json` and all `bp-*.json` files from the data directory
-2. Builds a complete `report.html` with:
-   - Summary box (pass/warning/severe counts)
-   - Table rows for: page title, favicon, broken images, heading hierarchy, empty headings, links, link transitions, section detection, and responsive checks (overflow, hidden sections, hamburger) at every breakpoint
-   - Screenshots gallery
-3. Attempts PDF conversion via `agent-browser` (open file with `--allow-file-access`, then `pdf` command), falling back to `chromium` → `google-chrome` → `wkhtmltopdf` → `weasyprint` (first found on PATH)
-4. Falls back to `report.html` only if no PDF engine is available
+1. Loads `site-wide.json`, all `bp-*.json` files, `figma-heading-expectations.json`, and optional `sections-config.json` from the data directory
+2. Resolves sections (manual override if `sections-config.json` exists, otherwise auto-detected from `site-wide.json`)
+3. Builds `report.html` with:
+   - **Summary box** — pass/warning/severe counts, section count, breakpoint count, site URL, date, and whether sections were manual or auto-detected
+   - **Per-section tables** — one dedicated table per section, each with columns: Section, Parameter, Expected, Found, Verdict, Note, **Selector** (copy-paste CSS selector for DevTools)
+    - **Site-wide checks table** — page title, favicon, broken images, heading hierarchy, empty headings, per-heading Figma comparison (text, font-size, font-weight, font-family, color), links, link transitions — all with Selector column
+   - **Responsive tables** — grouped by section+category (e.g. "Hero / mobile"), with overflows and hidden sections attributed to their parent section via `sectionLabel`
+   - **Screenshots gallery** — all breakpoint screenshots with lazy loading and clickable links
+   - **Jump navigation** — anchor links to every section table, site-wide table, responsive section, and screenshots
+4. Builds `report.csv` — same data in CSV format with columns: Section, Parameter, Expected, Found, Verdict, Note, Selector. Ready for Jira bug import or Excel analysis.
+5. Attempts PDF conversion via `agent-browser` → `chromium` → `google-chrome` → `wkhtmltopdf` → `weasyprint` (first found on PATH)
 
 If the script's report is sufficient, you're done. If additional manual findings need to be added (e.g. color/font discrepancies found in Step 3), append them to the HTML report before PDF conversion, or note them alongside the final PDF.
 
-Structure the report (HTML → PDF) as follows:
+Structure the report (HTML / CSV) as follows:
 
-1. **Cover / Summary page** — site URL, Figma file/page URL, date, detected Figma frame width, whether mobile/tablet Figma frames existed (and therefore whether responsive checks used a design reference or general heuristics), and a totals box: count of pass / warning / severe across the whole audit.
-2. **Section-by-section report** — for every section identified in Step 1/2 (in page order), include a table with one row per parameter actually tested for that section. Every parameter from `references/checklist.md` that applies to that section must appear as its own row — do not collapse or omit parameters, and do not only list failures. Each row has: **Parameter | Expected (Figma) | Found (Live Site) | Verdict (pass/warning/severe) | Note**. Use a clear visual marker for verdict (e.g. ✅ pass, ⚠️ warning, 🛑 severe) so the scale is scannable at a glance.
-3. **Site-wide checks** — same table format for page title, favicon, full link audit (every href, including mailto, with its own row), and heading hierarchy/size-consistency findings across the whole page.
-4. **Responsive / cross-browser report** — one subsection per breakpoint category (Desktop, iPad, Mobile), and within each, one row per breakpoint size from `references/breakpoints.md` covering: overflow, section visibility, section spacing, and (mobile only) hamburger nav parity — each with its own verdict, not just a single pass/fail per size.
-5. **Appendix (optional)** — any screenshots/notes that materially help explain a severe finding, if available. Save screenshots into `./figma-design-qa-reports/<run-folder>/screenshots/` and reference them with relative paths from `report.html`.
+1. **Cover / Summary page** — site URL, Figma file/page URL, date, detected Figma frame width, whether mobile/tablet Figma frames existed, section source (manual override vs auto-detected), and a totals box: count of pass / warning / severe / total checks / sections / breakpoints.
+2. **Section-by-section report** — for every identified section (in page order), a dedicated table. Every parameter from `references/checklist.md` that applies to that section must appear as its own row. Each row has: **Section | Parameter | Expected (Figma) | Found (Live Site) | Verdict (pass/warning/severe) | Note | Selector | Parent XPath**. The Selector column contains a copy-paste DevTools command formatted as `document.querySelector("<selector>").scrollIntoView()`. The Parent XPath column appears only for non-visible elements (broken images, hidden sections) and shows the nearest visible ancestor's CSS selector in the same DevTools-ready format so developers can scroll to the visible parent.
+3. **Site-wide checks** — same table format with Selector and Parent XPath columns for: page title, favicon, broken images (each with its `selector` and `parentSelector` for the visible parent), heading hierarchy and size-consistency findings, empty heading audit (each with `selector`), **per-heading Figma comparison** (text content, font size, font weight, font family, color — each with verdict and selector), full link audit (every bad/empty href with its `selector`), and link hover transition.
+4. **Responsive / cross-browser report** — grouped by section+category (e.g. "Hero / desktop", "Footer / mobile"). Within each group, rows cover: overflow (with `sectionLabel` attribution, `selector`, and `parentSelector` for the visible parent), section visibility (collapsed sections with `label`, `elementSelector`, and `parentSelector` for the visible parent), and (mobile only) hamburger nav parity — each with its own verdict, not just a single pass/fail per size.
+5. **Appendix (optional)** — screenshots gallery with all breakpoint screenshots, each clickable to view full-size. Any additional screenshots/notes that materially help explain a severe finding. Screenshots are saved under `./figma-design-qa-reports/<run-folder>/screenshots/` and referenced with relative paths from `report.html`.
+6. **CSV export** — `report.csv` mirrors the HTML content with columns: Section, Parameter, Expected, Found, Verdict, Note, Selector, ParentSelector. Can be imported directly into Jira, Google Sheets, or Excel for bug tracking.
 
-Be specific in every flagged item: name the section, what was expected (from Figma), what was found (on site), and why it's that severity level. Save the final PDF to `./figma-design-qa-reports/<run-folder>/report.pdf` (relative to cwd) and present the absolute resolved path to the user — don't just describe the findings in chat.
+Be specific in every flagged item: name the section, what was expected (from Figma), what was found (on site), why it's that severity level, and include the **Selector** (as a `document.querySelector("...").scrollIntoView()` DevTools snippet) so developers can immediately locate the element. For non-visible elements (broken images, hidden sections), also include the **parentSelector** of the nearest visible ancestor. Save the final PDF to `./figma-design-qa-reports/<run-folder>/report.pdf`, the HTML to `report.html`, and the CSV to `report.csv` (all relative to cwd). Present the resolved paths to the user — don't just describe the findings in chat.
