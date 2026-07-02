@@ -17,6 +17,7 @@ This toolkit performs complete design QA audits by:
 | `figma-qa-collect-live-site.sh` | Full live site data collection using agent-browser |
 | `figma-qa-generate-report.sh` | Builds HTML/PDF report from collected data |
 | `figma-qa-delegator.sh` | Orchestrates single or batch QA runs |
+| `figma-qa-skill-runner.sh` | **Wrapper around the official figma-design-qa skill scripts** (`qa-collect.sh` + `qa-generate-report.js`) |
 
 ## Quick Start
 
