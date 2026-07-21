@@ -35,9 +35,9 @@ The main instruction file for the skill. It defines a 6-step workflow:
 | Step | What Happens |
 |------|-------------|
 | **Step 0** | Preconditions — verify Figma MCP is connected, both URLs are supplied, `agent-browser` is installed |
-| **Step 1** | Pull Figma design data via Figma MCP (node tree, dimensions, text, fonts, colors, spacing, images). Break the frame into logical sections top-to-bottom. Optionally create `sections-config.json` to override auto-detected section selectors. |
-| **Step 2** | Run the `qa-collect.sh` script to gather all live site data (headings, images, links, sections, overflows, heading hierarchy, favicon, link transitions) and take responsive screenshots. |
-| **Step 3** | Section-by-section manual comparison using the `references/checklist.md` rules against Figma data and screenshots. |
+| **Step 1** | Pull Figma design data via Figma MCP (node tree, dimensions, text, fonts, colors, spacing, images). Break the frame into logical sections top-to-bottom. Optionally create `sections-config.json` to override auto-detected section selectors, and `figma-heading-expectations.json` with `expectedTextTransform` to handle CSS text-transform normalization (uppercase/lowercase/capitalize). |
+| **Step 2** | Run the `qa-collect.sh` script to gather all live site data (headings with `textTransform`, images, links, sections, overflows, heading hierarchy, favicon, link transitions) and take responsive screenshots. |
+| **Step 3** | Section-by-section manual comparison using the `references/checklist.md` rules against Figma data and screenshots. Text content comparison normalizes Figma text via `expectedTextTransform` before matching live site. |
 | **Step 4** | Review responsive results from the collected breakpoint data and screenshots (overflow, hidden sections, hamburger nav). |
 | **Step 5** | Run `qa-generate-report.js` to produce `report.html`, `report.csv`, and optionally `report.pdf`. |
 
@@ -79,7 +79,7 @@ Injects a large JavaScript payload via `agent-browser eval --stdin` that collect
 |---|---|---|
 | **page title** | `document.title` | — |
 | **page URL** | `window.location.href` | — |
-| **headings** | All `h1`–`h6` elements | `tag`, `text`, `fontSize` (computed), `color` (computed), `selector` (CSS), `xpath` |
+| **headings** | All `h1`–`h6` elements | `tag`, `text`, `fontSize` (computed), `color` (computed), `textTransform` (computed), `selector` (CSS), `xpath` |
 | **images** | All `document.images` | `src`, `naturalWidth`, `naturalHeight`, `alt`, `visible` (boolean), `selector`, `xpath` |
 | **links** | All `<a>` elements | `href`, `text`, `isEmpty` (no href), `isPlaceholder` (`href="#"`), `selector`, `xpath` |
 | **favicon** | `link[rel~="icon"]` href | — |
@@ -169,13 +169,30 @@ node qa-generate-report.js <collection-directory>
 | **Broken images** | Iterates `siteWide.brokenImages[]`, each is severe with `0x0 natural dimensions` note and `selector` | If none, one pass row with image count |
 | **H1 count** | Exactly 1 → pass with text preview + selector; else severe listing all H1 texts | |
 | **Heading hierarchy** | If `headingInversion` exists → severe with tag/size/previousSize + selector; else pass | |
+| **Heading text content** | Compares live text against Figma expectation with `expectedTextTransform` normalization; mismatch → severe | If no expectations file, flagged as severe |
+| **Text transform** | Compares live `textTransform` against Figma's `expectedTextTransform`; mismatch → warning | Skipped if not set in Figma expectations |
 | **Empty headings** | Each heading with no text is a warning with selector | If none, one pass row |
 | **Empty links** | Each `<a>` with no href is severe with text preview + selector | |
 | **Placeholder links** | Each `<a>` with `href="#"` is warning with text preview + selector | |
 | **All links OK** | If no empty/placeholder links, one pass row with total link count | |
 | **Link transitions** | `0s` or `null` → warning "No visible transition"; otherwise pass showing the duration | |
 
-#### 5. Per-section Metadata (lines 146-151)
+#### 5a. Heading Text Content with Transform (after line 196)
+Each heading's text content is compared using the `applyTransform()` helper. If the Figma expectations include `expectedTextTransform` (values: `uppercase`, `lowercase`, `capitalize`), the raw `expectedText` is normalized before comparison against the live site's text. This prevents false content-mismatch bugs when only a CSS text-transform differs between design and implementation.
+
+```js
+function applyTransform(text, transform) {
+  if (!transform || transform === 'none') return text;
+  if (transform === 'uppercase') return text.toUpperCase();
+  if (transform === 'lowercase') return text.toLowerCase();
+  if (transform === 'capitalize') return text.replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+  return text;
+}
+```
+
+Additionally, if `expectedTextTransform` is set, a dedicated **Text transform** row is emitted comparing the live site's computed `textTransform` against Figma's value. A mismatch is a **warning** (cosmetic CSS drift).
+
+#### 5b. Per-section Metadata (lines 146-151)
 - Each section gets one pass row showing its bounds (`tag`, `class`, `top`, `height`, `width`) with selector
 
 #### 6. Responsive Checks (lines 153-211)
@@ -226,7 +243,7 @@ The source of truth for what constitutes pass/warning/severe. Used in Steps 3 an
 | **Color** | Exact or imperceptible match | Different shade/tone, same hue family | Wrong color entirely (brand blue vs gray; accessibility broken) |
 | **Fonts** | Exact match (typeface + weight) | — | Any mismatch in font family (highly visible miss) |
 | **Font size** | Exact match | Within ±10% of Figma | Beyond ±10% |
-| **Content/copy** | Exact match | — | Any deviation (intentionally strict); any placeholder/dummy text |
+| **Content/copy** | Exact match (CSS `text-transform` accounted for via normalization) | — | Any deviation (intentionally strict); any placeholder/dummy text |
 | **Container sizing** | Matching dimensions | — | Meaningful mismatch (not sub-pixel rounding) |
 | **Page title** | Matches Figma | — | Mismatch |
 | **Favicon** | Present & loads | — | Missing or 404 |
