@@ -164,10 +164,19 @@ if (!figmaHeadingsFile || !Array.isArray(figmaHeadingsFile) || figmaHeadingsFile
     const label = `Heading: ${live.tag} "${live.text.substring(0,50)}"`;
     const sel = live.selector;
 
-    // Text content
+    // Text content (accounts for CSS text-transform in Figma)
     if (exp.expectedText !== undefined && exp.expectedText !== null) {
-      const textMatch = live.text.trim() === (exp.expectedText || '').trim();
-      siteWideRows.push(makeRow('Page-wide', `${label} — Text content`, exp.expectedText, live.text, textMatch ? 'pass' : 'severe', textMatch ? '' : 'Content mismatch with Figma', sel));
+      const effectiveText = applyTransform((exp.expectedText || '').trim(), exp.expectedTextTransform);
+      const textMatch = live.text.trim() === effectiveText;
+      const note = textMatch ? '' : (exp.expectedTextTransform ? `Content mismatch (Figma raw: "${exp.expectedText}" with ${exp.expectedTextTransform})` : 'Content mismatch with Figma');
+      siteWideRows.push(makeRow('Page-wide', `${label} — Text content`, effectiveText, live.text, textMatch ? 'pass' : 'severe', note, sel));
+    }
+
+    // Text transform
+    if (exp.expectedTextTransform) {
+      const liveTransform = live.textTransform || 'none';
+      const ttMatch = liveTransform === exp.expectedTextTransform;
+      siteWideRows.push(makeRow('Page-wide', `${label} — Text transform`, exp.expectedTextTransform, liveTransform, ttMatch ? 'pass' : 'warning', ttMatch ? '' : 'CSS text-transform mismatch', sel));
     }
 
     // Font size
@@ -209,6 +218,14 @@ if (!figmaHeadingsFile || !Array.isArray(figmaHeadingsFile) || figmaHeadingsFile
       siteWideRows.push(makeRow('Page-wide', `${label} — Color`, exp.expectedColor, live.color, cVerdict, cNote, sel));
     }
   }
+}
+
+function applyTransform(text, transform) {
+  if (!transform || transform === 'none') return text;
+  if (transform === 'uppercase') return text.toUpperCase();
+  if (transform === 'lowercase') return text.toLowerCase();
+  if (transform === 'capitalize') return text.replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+  return text;
 }
 
 function normalizeColor(c) {

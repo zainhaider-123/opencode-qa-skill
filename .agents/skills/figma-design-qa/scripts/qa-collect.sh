@@ -159,6 +159,7 @@ cat <<'EOF' | _eval_to_file "$OUTDIR/data/site-wide-raw.txt"
         fontSize: cs.fontSize,
         fontFamily: cs.fontFamily,
         fontWeight: cs.fontWeight,
+        textTransform: cs.textTransform,
         color: cs.color,
         selector: getSelector(h),
         xpath: getXPath(h)

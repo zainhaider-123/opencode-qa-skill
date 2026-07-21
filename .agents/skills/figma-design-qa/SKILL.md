@@ -66,7 +66,8 @@ Supports manual section override via `sections-config.json` (see Step 1). If not
   [
     {
       "selector": "header h1",
-      "expectedText": "Welcome to our site",
+      "expectedText": "welcome to our site",
+      "expectedTextTransform": "uppercase",
       "expectedFontFamily": "Inter",
       "expectedFontWeight": "700",
       "expectedFontSize": "48px",
@@ -74,6 +75,8 @@ Supports manual section override via `sections-config.json` (see Step 1). If not
     }
   ]
   ```
+
+  If Figma applies a `text-transform` (e.g. `uppercase`, `capitalize`, `lowercase`) to a heading's style, include it as `expectedTextTransform`. The comparison engine uses this to normalize both sides — the raw `expectedText` is transformed before comparing against the live site, preventing false content-mismatch bugs when only the CSS transform differs.
 
   The `selector` field must match the CSS selector the collection script will produce for the same heading on the live site. Derive it from the element's context (e.g. `section.hero h1`, `footer h2`). This file is read by the report generator to auto-produce pass/warning/severe rows for every heading — if it is missing, the report will contain a **severe** finding: "AI agent did not perform heading comparison".
 
@@ -86,11 +89,11 @@ The collection script auto-detects sections heuristically by scanning for common
    ```json
    {
      "sections": [
-       { "name": "Header",      "selector": "header#site-header" },
-       { "name": "Hero",         "selector": "section.hero-banner" },
-       { "name": "Features",     "selector": ".elementor-section.features" },
+       { "name": "Header", "selector": "header#site-header" },
+       { "name": "Hero", "selector": "section.hero-banner" },
+       { "name": "Features", "selector": ".elementor-section.features" },
        { "name": "Testimonials", "selector": "#testimonials" },
-       { "name": "Footer",       "selector": "footer.site-footer" }
+       { "name": "Footer", "selector": "footer.site-footer" }
      ]
    }
    ```
@@ -118,6 +121,7 @@ Do **not** use DevTools MCP or manual `evaluate_script` for this. Run the collec
 4. Verify the output files exist: `ls <run-folder>/data/site-wide.json` and at least a few `bp-*.json` files.
 
 The script handles:
+
 - Opening the site at desktop width, scrolling to trigger lazy content
 - Collecting site-wide data with **CSS selector** and **XPath** on every element:
   - **headings** — tag, text, font-size, color, `selector`, `xpath`
@@ -149,6 +153,7 @@ If the auto-detected sections in `site-wide.json` don't match the Figma sections
 4. **Re-run the report generator** to pick up the manual section mapping.
 
 For automated checks, cross-reference the data from `./figma-design-qa-reports/<run-folder>/data/site-wide.json` against the Figma design data from Step 1:
+
 - Compare the live site's **page title** (from JSON) against Figma's expected title.
 - Compare **favicon** existence (from JSON) against expected.
 - Compare **heading hierarchy** (from JSON `headingInversion`, `h1s` count) against Figma. Each heading includes a `selector` for quick location.
@@ -163,10 +168,11 @@ For color, font family, font size, content/copy, container dimensions, and other
 
 For **every heading** on the page, you must compare the following against Figma. These are enforced by the report generator via `figma-heading-expectations.json` (created in Step 1). If that file is missing or incomplete, the report will flag it as **severe**.
 
-- **Text content**: must match Figma exactly (any deviation → severe per `checklist.md`)
+- **Text content**: must match Figma after applying `expectedTextTransform` to the raw Figma text (any deviation → severe per `checklist.md`). If Figma has a `text-transform` style, set `expectedTextTransform` in the expectations so comparison normalizes both sides.
 - **Font size**: ±10% tolerance (within → warning at most; beyond → severe)
 - **Font family**: must match Figma exactly (mismatch → severe)
 - **Font weight**: must match Figma exactly (mismatch → severe)
+- **Text transform**: must match Figma's `text-transform` property (mismatch → warning; cosmetic CSS drift)
 - **Color**: exact/near-exact → pass; same hue different shade → warning; wrong color → severe
 
 After running the collection script, verify that every live heading has a matching entry in `figma-heading-expectations.json` (matched by `selector`). If the collection script produces a different selector than what you wrote, update `figma-heading-expectations.json` to match before running the report generator.
@@ -176,6 +182,7 @@ After running the collection script, verify that every live heading has a matchi
 This is already handled by `qa-collect.sh` — it tests every breakpoint from `references/breakpoints.md`. Do **not** re-run responsive tests with DevTools MCP.
 
 To review results:
+
 1. Read the per-breakpoint JSON files in `./figma-design-qa-reports/<run-folder>/data/bp-*.json` for:
    - `overflows` — elements wider than viewport. Each entry includes `sectionLabel` (which section the overflow belongs to), `selector`, and `xpath` for easy DevTools location.
    - `hiddenSections` — collapsed/zero-height sections. Each entry includes `label` (section name), `elementSelector`, and `xpath`.
@@ -201,12 +208,13 @@ node <absolute-path-to-scripts/qa-generate-report.js> ./figma-design-qa-reports/
 ```
 
 The script:
+
 1. Loads `site-wide.json`, all `bp-*.json` files, `figma-heading-expectations.json`, and optional `sections-config.json` from the data directory
 2. Resolves sections (manual override if `sections-config.json` exists, otherwise auto-detected from `site-wide.json`)
 3. Builds `report.html` with:
    - **Summary box** — pass/warning/severe counts, section count, breakpoint count, site URL, date, and whether sections were manual or auto-detected
    - **Per-section tables** — one dedicated table per section, each with columns: Section, Parameter, Expected, Found, Verdict, Note, **Selector** (copy-paste CSS selector for DevTools)
-    - **Site-wide checks table** — page title, favicon, broken images, heading hierarchy, empty headings, per-heading Figma comparison (text, font-size, font-weight, font-family, color), links, link transitions — all with Selector column
+   - **Site-wide checks table** — page title, favicon, broken images, heading hierarchy, empty headings, per-heading Figma comparison (text, font-size, font-weight, font-family, color), links, link transitions — all with Selector column
    - **Responsive tables** — grouped by section+category (e.g. "Hero / mobile"), with overflows and hidden sections attributed to their parent section via `sectionLabel`
    - **Screenshots gallery** — all breakpoint screenshots with lazy loading and clickable links
    - **Jump navigation** — anchor links to every section table, site-wide table, responsive section, and screenshots

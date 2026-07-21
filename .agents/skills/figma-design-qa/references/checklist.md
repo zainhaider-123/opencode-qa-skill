@@ -18,7 +18,7 @@ Severity scale used throughout: **pass**, **warning**, **severe**. When a rule b
 - Exact match → pass.
 
 ## Content / copy matching
-- Text content on the site must match Figma content exactly (same words, same casing/punctuation where it matters).
+- Text content on the site must match Figma content exactly (same words, same casing/punctuation where it matters). CSS `text-transform` is accounted for: if Figma applies `text-transform: uppercase`/`capitalize`/`lowercase`, the effective rendered text is used for comparison, not the raw string.
 - Any deviation, however small → **severe**. This is intentionally strict — content drift is treated as a content bug, not cosmetic.
 - Any placeholder/dummy text on the live site (lorem ipsum, "Lorem ipsum dolor...", "Sample text", "Your text here", placeholder names like "John Doe" where real content was expected, etc.) → **severe**, flagged immediately regardless of surrounding context.
 
